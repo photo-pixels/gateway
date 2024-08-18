@@ -1,0 +1,10 @@
+server:
+  host: "10.10.10.23"
+  port: 8088
+  shutdown_timeout: 3
+
+clients:
+  user_account_target: "localhost:8181"
+
+jwt_helper:
+  public_key_file: "configs/ssl/public.key.pem"

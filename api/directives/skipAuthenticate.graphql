@@ -1,0 +1,2 @@
+""" Пропускает проверку аутентификации для мутации/группы мутаций """
+directive @skipAuthenticate on FIELD_DEFINITION
