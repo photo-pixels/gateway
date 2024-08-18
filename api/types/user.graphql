@@ -1,0 +1,17 @@
+type UserProfile @goModel(model: "github.com/photo-pixels/gateway/pkg/gen/user_account.GetUserResponse"){
+    id: ID!
+    email: String!
+    firstname: String!
+    surname: String!
+    patronymic: String
+    status: AuthStatus!
+    created_at: Timestamp!
+}
+
+enum AuthStatus {
+    AUTH_STATUS_UNKNOWN
+    AUTH_STATUS_SENT_INVITE
+    AUTH_STATUS_NOT_ACTIVATED
+    AUTH_STATUS_ACTIVATED
+    AUTH_STATUS_BLOCKED
+}

@@ -1,0 +1,1 @@
+scalar Timestamp @goModel(model: "google.golang.org/protobuf/types/known/timestamppb.Timestamp")
