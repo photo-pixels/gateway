@@ -10,6 +10,7 @@ install:
 generate:
 	mkdir -p vendor.protogen
 	cp -R ../user-account/api/user_account/ vendor.protogen/
+	cp -R ../photo/api/photo/ vendor.protogen/
 	buf generate
 	go run github.com/99designs/gqlgen generate
 

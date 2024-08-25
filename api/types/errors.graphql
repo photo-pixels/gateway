@@ -4,4 +4,6 @@ enum Error {
     SESSION_NO_FOUND
     """ Не авторизован """
     NO_AUTH
+    """ Токен не валиден """
+    TOKEN_IS_NOT_VALID
 }

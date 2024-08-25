@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/photo-pixels/gateway/internal/auth"
 	"github.com/photo-pixels/gateway/internal/clients"
-	"net/http"
-	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
@@ -52,6 +53,7 @@ func (s *GraphQLServer) Start(ctx context.Context) error {
 		},
 		Directives: graph.DirectiveRoot{
 			IsAuthenticated: s.auth.IsAuthenticated,
+			IsToken:         s.auth.IsToken,
 			SkipAuthenticate: func(ctx context.Context, obj interface{}, next graphql.Resolver) (res interface{}, err error) {
 				return next(ctx)
 			},
@@ -59,7 +61,7 @@ func (s *GraphQLServer) Start(ctx context.Context) error {
 	}))
 
 	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
-	http.Handle("/query", auth.SessionMiddleware(srv))
+	http.Handle("/query", auth.TokenMiddleware(auth.SessionMiddleware(srv)))
 
 	netAddress := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.HttpPort)
 	s.server = &http.Server{

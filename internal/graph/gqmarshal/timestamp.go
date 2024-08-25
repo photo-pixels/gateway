@@ -2,11 +2,12 @@ package gqmarshal
 
 import (
 	"fmt"
-	"github.com/99designs/gqlgen/graphql"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"io"
 	"strconv"
 	"time"
+
+	"github.com/99designs/gqlgen/graphql"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func MarshalTimestamp(t *timestamppb.Timestamp) graphql.Marshaler {

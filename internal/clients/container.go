@@ -2,6 +2,8 @@ package clients
 
 import (
 	"fmt"
+
+	photo "github.com/photo-pixels/gateway/pkg/gen/photo"
 	userAccount "github.com/photo-pixels/gateway/pkg/gen/user_account"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -9,13 +11,16 @@ import (
 
 type Config struct {
 	UserAccountTarget string `yaml:"user_account_target"`
+	PhotoTarget       string `yaml:"photo_target"`
 }
 
 type ServiceClientsContainer struct {
-	cfg        Config
-	authClient userAccount.AuthServiceClient
-	userClient userAccount.UserServiceClient
-	connect    []*grpc.ClientConn
+	cfg              Config
+	authClient       userAccount.AuthServiceClient
+	userClient       userAccount.UserServiceClient
+	tokenClient      userAccount.TokenServiceClient
+	syncPhotosClient photo.SyncPhotosServiceClient
+	connect          []*grpc.ClientConn
 }
 
 func NewServiceClientsContainer(cfg Config) (*ServiceClientsContainer, error) {
@@ -32,6 +37,18 @@ func NewServiceClientsContainer(cfg Config) (*ServiceClientsContainer, error) {
 		return nil, fmt.Errorf("s.createConnect: %w", err)
 	}
 	s.userClient = userAccount.NewUserServiceClient(conn)
+
+	conn, err = s.createConnect(cfg.UserAccountTarget)
+	if err != nil {
+		return nil, fmt.Errorf("s.createConnect: %w", err)
+	}
+	s.tokenClient = userAccount.NewTokenServiceClient(conn)
+
+	conn, err = s.createConnect(cfg.PhotoTarget)
+	if err != nil {
+		return nil, fmt.Errorf("s.createConnect: %w", err)
+	}
+	s.syncPhotosClient = photo.NewSyncPhotosServiceClient(conn)
 
 	return &s, nil
 }
@@ -63,4 +80,12 @@ func (s *ServiceClientsContainer) GetAuthClient() userAccount.AuthServiceClient 
 
 func (s *ServiceClientsContainer) GetUserClient() userAccount.UserServiceClient {
 	return s.userClient
+}
+
+func (s *ServiceClientsContainer) GetTokenClient() userAccount.TokenServiceClient {
+	return s.tokenClient
+}
+
+func (s *ServiceClientsContainer) GetSyncPhotosClient() photo.SyncPhotosServiceClient {
+	return s.syncPhotosClient
 }

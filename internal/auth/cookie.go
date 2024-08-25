@@ -14,6 +14,8 @@ const (
 	accessSessionKey ContextKey = "accessSession"
 	sessionKey       ContextKey = "session"
 	httpResponseKey  ContextKey = "httpResponse"
+	tokenKey         ContextKey = "token"
+	tokenSessionKey  ContextKey = "tokenSession"
 )
 
 const (

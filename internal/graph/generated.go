@@ -15,7 +15,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/introspection"
 	"github.com/photo-pixels/gateway/internal/graph/gqmarshal"
 	"github.com/photo-pixels/gateway/internal/graph/model"
-	api "github.com/photo-pixels/gateway/pkg/gen/user_account"
+	api "github.com/photo-pixels/gateway/pkg/gen/photo"
+	api1 "github.com/photo-pixels/gateway/pkg/gen/user_account"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -48,13 +49,15 @@ type ResolverRoot interface {
 
 type DirectiveRoot struct {
 	IsAuthenticated  func(ctx context.Context, obj interface{}, next graphql.Resolver) (res interface{}, err error)
+	IsToken          func(ctx context.Context, obj interface{}, next graphql.Resolver) (res interface{}, err error)
 	SkipAuthenticate func(ctx context.Context, obj interface{}, next graphql.Resolver) (res interface{}, err error)
 }
 
 type ComplexityRoot struct {
 	Mutation struct {
-		Login  func(childComplexity int, input model.LoginInput) int
-		Logout func(childComplexity int) int
+		Login       func(childComplexity int, input model.LoginInput) int
+		Logout      func(childComplexity int) int
+		UploadPhoto func(childComplexity int, input model.UploadPhotoInput) int
 	}
 
 	Query struct {
@@ -63,6 +66,11 @@ type ComplexityRoot struct {
 
 	Result struct {
 		Success func(childComplexity int) int
+	}
+
+	UploadPhotoResponse struct {
+		Hash            func(childComplexity int) int
+		SuccessUploaded func(childComplexity int) int
 	}
 
 	UserProfile struct {
@@ -79,12 +87,13 @@ type ComplexityRoot struct {
 type MutationResolver interface {
 	Login(ctx context.Context, input model.LoginInput) (*model.Result, error)
 	Logout(ctx context.Context) (*model.Result, error)
+	UploadPhoto(ctx context.Context, input model.UploadPhotoInput) (*api.UploadPhotoResponse, error)
 }
 type QueryResolver interface {
-	User(ctx context.Context) (*api.GetUserResponse, error)
+	User(ctx context.Context) (*api1.GetUserResponse, error)
 }
 type UserProfileResolver interface {
-	Status(ctx context.Context, obj *api.GetUserResponse) (model.AuthStatus, error)
+	Status(ctx context.Context, obj *api1.GetUserResponse) (model.AuthStatus, error)
 }
 
 type executableSchema struct {
@@ -125,6 +134,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.Logout(childComplexity), true
 
+	case "Mutation.upload_photo":
+		if e.complexity.Mutation.UploadPhoto == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_upload_photo_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UploadPhoto(childComplexity, args["input"].(model.UploadPhotoInput)), true
+
 	case "Query.user":
 		if e.complexity.Query.User == nil {
 			break
@@ -138,6 +159,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Result.Success(childComplexity), true
+
+	case "UploadPhotoResponse.hash":
+		if e.complexity.UploadPhotoResponse.Hash == nil {
+			break
+		}
+
+		return e.complexity.UploadPhotoResponse.Hash(childComplexity), true
+
+	case "UploadPhotoResponse.success_uploaded":
+		if e.complexity.UploadPhotoResponse.SuccessUploaded == nil {
+			break
+		}
+
+		return e.complexity.UploadPhotoResponse.SuccessUploaded(childComplexity), true
 
 	case "UserProfile.created_at":
 		if e.complexity.UserProfile.CreatedAt == nil {
@@ -197,6 +232,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := executionContext{rc, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputLoginInput,
+		ec.unmarshalInputUploadPhotoInput,
 	)
 	first := true
 
@@ -296,6 +332,7 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 var sources = []*ast.Source{
 	{Name: "../../api/directives/goModel.graphql", Input: `directive @goModel(model: String, models: [String!]) on OBJECT | INPUT_OBJECT | SCALAR | ENUM | INTERFACE | UNION`, BuiltIn: false},
 	{Name: "../../api/directives/isAuthenticated.graphql", Input: `directive @isAuthenticated on FIELD_DEFINITION`, BuiltIn: false},
+	{Name: "../../api/directives/isToken.graphql", Input: `directive @isToken on FIELD_DEFINITION`, BuiltIn: false},
 	{Name: "../../api/directives/skipAuthenticate.graphql", Input: `""" Пропускает проверку аутентификации для мутации/группы мутаций """
 directive @skipAuthenticate on FIELD_DEFINITION`, BuiltIn: false},
 	{Name: "../../api/mutation/auth.graphql", Input: `input LoginInput {
@@ -306,6 +343,22 @@ directive @skipAuthenticate on FIELD_DEFINITION`, BuiltIn: false},
 extend type Mutation {
     login(input: LoginInput!): Result @skipAuthenticate
     logout: Result @isAuthenticated
+}`, BuiltIn: false},
+	{Name: "../../api/mutation/upload_photo.graphql", Input: `input UploadPhotoInput {
+    # Пути фотографий которые загружаем (может быть несколько если фото одинаковые)
+    paths: [String!]!
+    # Рассчитанный на клиенте хеш фотографии
+    hash: String!
+    # Данные фото
+    body: String!
+    # Информация о последнем изменении фото
+    photo_updated_at: Timestamp!
+    # Информация о клиенте (название клиента и тд)
+    client_info: String!
+}
+
+extend type Mutation {
+    upload_photo(input: UploadPhotoInput!): UploadPhotoResponse
 }`, BuiltIn: false},
 	{Name: "../../api/query/profile.graphql", Input: `extend type Query {
     user: UserProfile @isAuthenticated
@@ -329,12 +382,20 @@ enum Error {
     SESSION_NO_FOUND
     """ Не авторизован """
     NO_AUTH
+    """ Токен не валиден """
+    TOKEN_IS_NOT_VALID
 }`, BuiltIn: false},
 	{Name: "../../api/types/result.graphql", Input: `type Result {
     success: Boolean!
 }`, BuiltIn: false},
 	{Name: "../../api/types/timestamp.graphql", Input: `scalar Timestamp @goModel(model: "google.golang.org/protobuf/types/known/timestamppb.Timestamp")
 `, BuiltIn: false},
+	{Name: "../../api/types/upload_photo.graphql", Input: `type UploadPhotoResponse @goModel(model: "github.com/photo-pixels/gateway/pkg/gen/photo.UploadPhotoResponse") {
+    # Фото было загружено (если false, значит фотография была заруженна ранее)
+    success_uploaded: Boolean!
+    # Хеш фотографии
+    hash: String!
+}`, BuiltIn: false},
 	{Name: "../../api/types/user.graphql", Input: `type UserProfile @goModel(model: "github.com/photo-pixels/gateway/pkg/gen/user_account.GetUserResponse"){
     id: ID!
     email: String!
@@ -366,6 +427,21 @@ func (ec *executionContext) field_Mutation_login_args(ctx context.Context, rawAr
 	if tmp, ok := rawArgs["input"]; ok {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
 		arg0, err = ec.unmarshalNLoginInput2githubᚗcomᚋphotoᚑpixelsᚋgatewayᚋinternalᚋgraphᚋmodelᚐLoginInput(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_upload_photo_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 model.UploadPhotoInput
+	if tmp, ok := rawArgs["input"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+		arg0, err = ec.unmarshalNUploadPhotoInput2githubᚗcomᚋphotoᚑpixelsᚋgatewayᚋinternalᚋgraphᚋmodelᚐUploadPhotoInput(ctx, tmp)
 		if err != nil {
 			return nil, err
 		}
@@ -568,6 +644,64 @@ func (ec *executionContext) fieldContext_Mutation_logout(_ context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_upload_photo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_upload_photo(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UploadPhoto(rctx, fc.Args["input"].(model.UploadPhotoInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*api.UploadPhotoResponse)
+	fc.Result = res
+	return ec.marshalOUploadPhotoResponse2ᚖgithubᚗcomᚋphotoᚑpixelsᚋgatewayᚋpkgᚋgenᚋphotoᚐUploadPhotoResponse(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_upload_photo(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "success_uploaded":
+				return ec.fieldContext_UploadPhotoResponse_success_uploaded(ctx, field)
+			case "hash":
+				return ec.fieldContext_UploadPhotoResponse_hash(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type UploadPhotoResponse", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_upload_photo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_user(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query_user(ctx, field)
 	if err != nil {
@@ -599,7 +733,7 @@ func (ec *executionContext) _Query_user(ctx context.Context, field graphql.Colle
 		if tmp == nil {
 			return nil, nil
 		}
-		if data, ok := tmp.(*api.GetUserResponse); ok {
+		if data, ok := tmp.(*api1.GetUserResponse); ok {
 			return data, nil
 		}
 		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/photo-pixels/gateway/pkg/gen/user_account.GetUserResponse`, tmp)
@@ -611,7 +745,7 @@ func (ec *executionContext) _Query_user(ctx context.Context, field graphql.Colle
 	if resTmp == nil {
 		return graphql.Null
 	}
-	res := resTmp.(*api.GetUserResponse)
+	res := resTmp.(*api1.GetUserResponse)
 	fc.Result = res
 	return ec.marshalOUserProfile2ᚖgithubᚗcomᚋphotoᚑpixelsᚋgatewayᚋpkgᚋgenᚋuser_accountᚐGetUserResponse(ctx, field.Selections, res)
 }
@@ -818,7 +952,95 @@ func (ec *executionContext) fieldContext_Result_success(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_id(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UploadPhotoResponse_success_uploaded(ctx context.Context, field graphql.CollectedField, obj *api.UploadPhotoResponse) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_UploadPhotoResponse_success_uploaded(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SuccessUploaded, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_UploadPhotoResponse_success_uploaded(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "UploadPhotoResponse",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _UploadPhotoResponse_hash(ctx context.Context, field graphql.CollectedField, obj *api.UploadPhotoResponse) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_UploadPhotoResponse_hash(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Hash, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_UploadPhotoResponse_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "UploadPhotoResponse",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _UserProfile_id(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_id(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -862,7 +1084,7 @@ func (ec *executionContext) fieldContext_UserProfile_id(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_email(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_email(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_email(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -906,7 +1128,7 @@ func (ec *executionContext) fieldContext_UserProfile_email(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_firstname(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_firstname(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_firstname(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -950,7 +1172,7 @@ func (ec *executionContext) fieldContext_UserProfile_firstname(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_surname(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_surname(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_surname(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -994,7 +1216,7 @@ func (ec *executionContext) fieldContext_UserProfile_surname(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_patronymic(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_patronymic(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_patronymic(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -1035,7 +1257,7 @@ func (ec *executionContext) fieldContext_UserProfile_patronymic(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_status(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_status(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_status(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -1079,7 +1301,7 @@ func (ec *executionContext) fieldContext_UserProfile_status(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _UserProfile_created_at(ctx context.Context, field graphql.CollectedField, obj *api.GetUserResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _UserProfile_created_at(ctx context.Context, field graphql.CollectedField, obj *api1.GetUserResponse) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_UserProfile_created_at(ctx, field)
 	if err != nil {
 		return graphql.Null
@@ -2930,6 +3152,61 @@ func (ec *executionContext) unmarshalInputLoginInput(ctx context.Context, obj in
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputUploadPhotoInput(ctx context.Context, obj interface{}) (model.UploadPhotoInput, error) {
+	var it model.UploadPhotoInput
+	asMap := map[string]interface{}{}
+	for k, v := range obj.(map[string]interface{}) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"paths", "hash", "body", "photo_updated_at", "client_info"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "paths":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("paths"))
+			data, err := ec.unmarshalNString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Paths = data
+		case "hash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hash"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Hash = data
+		case "body":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("body"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Body = data
+		case "photo_updated_at":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("photo_updated_at"))
+			data, err := ec.unmarshalNTimestamp2ᚖgoogleᚗgolangᚗorgᚋprotobufᚋtypesᚋknownᚋtimestamppbᚐTimestamp(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PhotoUpdatedAt = data
+		case "client_info":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("client_info"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClientInfo = data
+		}
+	}
+
+	return it, nil
+}
+
 // endregion **************************** input.gotpl *****************************
 
 // region    ************************** interface.gotpl ***************************
@@ -2964,6 +3241,10 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "logout":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_logout(ctx, field)
+			})
+		case "upload_photo":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_upload_photo(ctx, field)
 			})
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -3096,9 +3377,53 @@ func (ec *executionContext) _Result(ctx context.Context, sel ast.SelectionSet, o
 	return out
 }
 
+var uploadPhotoResponseImplementors = []string{"UploadPhotoResponse"}
+
+func (ec *executionContext) _UploadPhotoResponse(ctx context.Context, sel ast.SelectionSet, obj *api.UploadPhotoResponse) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, uploadPhotoResponseImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("UploadPhotoResponse")
+		case "success_uploaded":
+			out.Values[i] = ec._UploadPhotoResponse_success_uploaded(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hash":
+			out.Values[i] = ec._UploadPhotoResponse_hash(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var userProfileImplementors = []string{"UserProfile"}
 
-func (ec *executionContext) _UserProfile(ctx context.Context, sel ast.SelectionSet, obj *api.GetUserResponse) graphql.Marshaler {
+func (ec *executionContext) _UserProfile(ctx context.Context, sel ast.SelectionSet, obj *api1.GetUserResponse) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, userProfileImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -3579,6 +3904,38 @@ func (ec *executionContext) marshalNString2string(ctx context.Context, sel ast.S
 	return res
 }
 
+func (ec *executionContext) unmarshalNString2ᚕstringᚄ(ctx context.Context, v interface{}) ([]string, error) {
+	var vSlice []interface{}
+	if v != nil {
+		vSlice = graphql.CoerceList(v)
+	}
+	var err error
+	res := make([]string, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNString2string(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNString2string(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNTimestamp2ᚖgoogleᚗgolangᚗorgᚋprotobufᚋtypesᚋknownᚋtimestamppbᚐTimestamp(ctx context.Context, v interface{}) (*timestamppb.Timestamp, error) {
 	res, err := gqmarshal.UnmarshalTimestamp(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -3598,6 +3955,11 @@ func (ec *executionContext) marshalNTimestamp2ᚖgoogleᚗgolangᚗorgᚋprotobu
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalNUploadPhotoInput2githubᚗcomᚋphotoᚑpixelsᚋgatewayᚋinternalᚋgraphᚋmodelᚐUploadPhotoInput(ctx context.Context, v interface{}) (model.UploadPhotoInput, error) {
+	res, err := ec.unmarshalInputUploadPhotoInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {
@@ -3940,7 +4302,14 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalOUserProfile2ᚖgithubᚗcomᚋphotoᚑpixelsᚋgatewayᚋpkgᚋgenᚋuser_accountᚐGetUserResponse(ctx context.Context, sel ast.SelectionSet, v *api.GetUserResponse) graphql.Marshaler {
+func (ec *executionContext) marshalOUploadPhotoResponse2ᚖgithubᚗcomᚋphotoᚑpixelsᚋgatewayᚋpkgᚋgenᚋphotoᚐUploadPhotoResponse(ctx context.Context, sel ast.SelectionSet, v *api.UploadPhotoResponse) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._UploadPhotoResponse(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOUserProfile2ᚖgithubᚗcomᚋphotoᚑpixelsᚋgatewayᚋpkgᚋgenᚋuser_accountᚐGetUserResponse(ctx context.Context, sel ast.SelectionSet, v *api1.GetUserResponse) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

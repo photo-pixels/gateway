@@ -1,0 +1,1 @@
+directive @isToken on FIELD_DEFINITION

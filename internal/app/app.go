@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+
 	"github.com/photo-pixels/gateway/internal/auth"
 	"github.com/photo-pixels/gateway/internal/auth/jwt_helper"
 	"github.com/photo-pixels/gateway/internal/clients"
@@ -61,6 +62,7 @@ func (a *App) Create(ctx context.Context) error {
 		a.logger,
 		a.jwtHelper,
 		a.cc.GetAuthClient(),
+		a.cc.GetTokenClient(),
 	)
 
 	return err

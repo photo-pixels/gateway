@@ -5,6 +5,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	UploadPhotoTokenType = "upload_photo"
+)
+
 // PermissionSession данные прав
 type PermissionSession struct {
 	ID   uuid.UUID `json:"id"`
@@ -36,4 +40,10 @@ func (c *accessSessionClaims) Valid() error {
 		return err
 	}
 	return nil
+}
+
+// TokenSession данные токена
+type TokenSession struct {
+	UserID    uuid.UUID
+	TokenType string
 }

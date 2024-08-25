@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type LoginInput struct {
@@ -21,6 +23,14 @@ type Query struct {
 
 type Result struct {
 	Success bool `json:"success"`
+}
+
+type UploadPhotoInput struct {
+	Paths          []string               `json:"paths"`
+	Hash           string                 `json:"hash"`
+	Body           string                 `json:"body"`
+	PhotoUpdatedAt *timestamppb.Timestamp `json:"photo_updated_at"`
+	ClientInfo     string                 `json:"client_info"`
 }
 
 type AuthStatus string
@@ -78,16 +88,19 @@ const (
 	ErrorSessionNoFound Error = "SESSION_NO_FOUND"
 	//  Не авторизован
 	ErrorNoAuth Error = "NO_AUTH"
+	//  Токен не валиден
+	ErrorTokenIsNotValid Error = "TOKEN_IS_NOT_VALID"
 )
 
 var AllError = []Error{
 	ErrorSessionNoFound,
 	ErrorNoAuth,
+	ErrorTokenIsNotValid,
 }
 
 func (e Error) IsValid() bool {
 	switch e {
-	case ErrorSessionNoFound, ErrorNoAuth:
+	case ErrorSessionNoFound, ErrorNoAuth, ErrorTokenIsNotValid:
 		return true
 	}
 	return false

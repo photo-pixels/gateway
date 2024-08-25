@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/photo-pixels/gateway/internal/auth/jwt_helper"
 	"github.com/photo-pixels/gateway/internal/graph/model"
@@ -16,9 +17,10 @@ type JWTHelper interface {
 }
 
 type Auth struct {
-	logger            log.Logger
-	jwtHelper         JWTHelper
-	authServiceClient userAccount.AuthServiceClient
+	logger             log.Logger
+	jwtHelper          JWTHelper
+	authServiceClient  userAccount.AuthServiceClient
+	tokenServiceClient userAccount.TokenServiceClient
 }
 
 // NewAuth новый менеджер работы с токенам
@@ -26,11 +28,13 @@ func NewAuth(
 	logger log.Logger,
 	jwtHelper JWTHelper,
 	authServiceClient userAccount.AuthServiceClient,
+	tokenServiceClient userAccount.TokenServiceClient,
 ) *Auth {
 	return &Auth{
-		logger:            logger.Named("auth"),
-		jwtHelper:         jwtHelper,
-		authServiceClient: authServiceClient,
+		logger:             logger.Named("auth"),
+		jwtHelper:          jwtHelper,
+		authServiceClient:  authServiceClient,
+		tokenServiceClient: tokenServiceClient,
 	}
 }
 

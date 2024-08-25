@@ -2,8 +2,9 @@ package jwt_helper
 
 import (
 	"crypto/rsa"
-	"github.com/dgrijalva/jwt-go"
 	"os"
+
+	"github.com/dgrijalva/jwt-go"
 )
 
 // Config конфиг

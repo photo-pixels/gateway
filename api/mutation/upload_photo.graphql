@@ -1,0 +1,16 @@
+input UploadPhotoInput {
+    # Пути фотографий которые загружаем (может быть несколько если фото одинаковые)
+    paths: [String!]!
+    # Рассчитанный на клиенте хеш фотографии
+    hash: String!
+    # Данные фото
+    body: String!
+    # Информация о последнем изменении фото
+    photo_updated_at: Timestamp!
+    # Информация о клиенте (название клиента и тд)
+    client_info: String!
+}
+
+extend type Mutation {
+    upload_photo(input: UploadPhotoInput!): UploadPhotoResponse
+}

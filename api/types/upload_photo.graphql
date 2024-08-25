@@ -1,0 +1,6 @@
+type UploadPhotoResponse @goModel(model: "github.com/photo-pixels/gateway/pkg/gen/photo.UploadPhotoResponse") {
+    # Фото было загружено (если false, значит фотография была заруженна ранее)
+    success_uploaded: Boolean!
+    # Хеш фотографии
+    hash: String!
+}

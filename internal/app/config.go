@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+
 	"github.com/photo-pixels/gateway/internal/auth/jwt_helper"
 	"github.com/photo-pixels/gateway/internal/clients"
 
